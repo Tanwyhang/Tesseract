@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { toast } from 'sonner'
 
 // Blue Sky Theme Colors
 const colors = {
@@ -56,12 +57,6 @@ interface Block {
   createdAt?: number
 }
 
-interface Toast {
-  id: string
-  message: string
-  type: 'win' | 'loss'
-}
-
 // === NEW PARTICLE SYSTEM ===
 interface Particle {
   x: number
@@ -99,7 +94,6 @@ export default function TapTrade() {
   const [balance, setBalance] = useState(STARTING_BALANCE)
   const [selectedBet, setSelectedBet] = useState(5)
   const [blocks, setBlocks] = useState<Block[]>([])
-  const [toasts, setToasts] = useState<Toast[]>([])
   const [totalWins, setTotalWins] = useState(0)
   const [totalLosses, setTotalLosses] = useState(0)
   const [totalWagered, setTotalWagered] = useState(0)
@@ -122,18 +116,14 @@ export default function TapTrade() {
   const isDraggingRef = useRef(false)
   const lastPlacedCellRef = useRef<{ gridX: number; gridY: number } | null>(null)
   const blocksRef = useRef<Block[]>([])
+  const isPointerActiveRef = useRef(false)
+  const processedBlockIdsRef = useRef<Set<string>>(new Set())
 
   const GRID_PADDING = { top: 20, right: 20, bottom: 20, left: 20 }
   const PRICE_LINE_POSITION = 0.4
   const dpr = typeof window !== 'undefined' ? window.devicePixelRatio : 1
 
   useEffect(() => { blocksRef.current = blocks }, [blocks])
-
-  const addToast = useCallback((message: string, type: 'win' | 'loss') => {
-    const id = `${Date.now()}-${Math.random()}`
-    setToasts(prev => [...prev, { id, message, type }].slice(-3))
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 1500)
-  }, [])
 
   // === EXPLOSION (optimised: no shadowBlur, reduced counts) ===
   const spawnExplosion = useCallback((x: number, y: number) => {
@@ -242,7 +232,7 @@ export default function TapTrade() {
     if (blocksRef.current.some(b => b.gridX === absoluteGridX && b.gridY === absoluteGridY && b.status === 'pending')) return false
     
     const currentBalance = balance
-    if (currentBalance < selectedBet) { addToast('Insufficient balance!', 'loss'); return false }
+    if (currentBalance < selectedBet) { return false }
     
     setBalance(prev => prev < selectedBet ? prev : prev - selectedBet)
     setTotalWagered(prev => prev + selectedBet)
@@ -259,7 +249,7 @@ export default function TapTrade() {
       createdAt: performance.now()
     }])
     return true
-  }, [selectedBet, addToast, balance])
+  }, [selectedBet, balance])
 
   // === Helper: get white particle color ===
   const getParticleColor = (_hue: number, alpha: number): string => {
@@ -753,14 +743,22 @@ export default function TapTrade() {
             const distance = Math.abs(currentY - (block.gridY + 0.5))
             if (distance <= 0.5) {
               // WIN
-              const winAmount = block.betSize * block.multiplier
-              setBalance(b => b + winAmount)
-              setTotalWins(w => w + 1)
-              setTotalWonAmount(w => w + winAmount)
-              addToast(`+$${winAmount.toFixed(2)}`, 'win')
-              const headX = gridLeft + gridWidth * PRICE_LINE_POSITION
-              const headY = GRID_PADDING.top + gridHeight / 2
-              spawnExplosion(headX, headY)
+              if (!processedBlockIdsRef.current.has(block.id)) {
+                const winAmount = block.betSize * block.multiplier
+                setBalance(b => b + winAmount)
+                setTotalWins(w => w + 1)
+                setTotalWonAmount(w => w + winAmount)
+                toast.success(`+$${winAmount.toFixed(2)}`, {
+                  style: {
+                    background: '#eef0f3',
+                    borderLeft: '4px solid #20C073',
+                  },
+                })
+                processedBlockIdsRef.current.add(block.id)
+                const headX = gridLeft + gridWidth * PRICE_LINE_POSITION
+                const headY = GRID_PADDING.top + gridHeight / 2
+                spawnExplosion(headX, headY)
+              }
               result.push({ ...block, status: 'won' })
               resolvedOne = true
               continue
@@ -772,8 +770,10 @@ export default function TapTrade() {
 
           // Loss check: price line has fully passed the block's right edge
           if (priceLineGridX >= blockRight) {
-            setTotalLosses(l => l + 1)
-            addToast(`-$${block.betSize.toFixed(2)}`, 'loss')
+            if (!processedBlockIdsRef.current.has(block.id)) {
+              setTotalLosses(l => l + 1)
+              processedBlockIdsRef.current.add(block.id)
+            }
             result.push({ ...block, status: 'lost', lostAt: performance.now() })
             resolvedOne = true
             continue
@@ -785,12 +785,18 @@ export default function TapTrade() {
         return result
       })
 
+      // Clean up processed IDs for blocks that no longer exist
+      const currentBlockIds = new Set(blocksRef.current.map(b => b.id))
+      processedBlockIdsRef.current = new Set(
+        [...processedBlockIdsRef.current].filter(id => currentBlockIds.has(id))
+      )
+
       draw()
       animationRef.current = requestAnimationFrame(animate)
     }
     animationRef.current = requestAnimationFrame(animate)
     return () => cancelAnimationFrame(animationRef.current)
-  }, [draw, addToast, spawnExplosion, GRID_PADDING.left, GRID_PADDING.top])
+  }, [draw, spawnExplosion, GRID_PADDING.left, GRID_PADDING.top])
 
   // Pointer coordinate extraction (mouse + touch)
   const getPointerCoords = useCallback((e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
@@ -837,22 +843,31 @@ export default function TapTrade() {
 
   const handlePointerDown = useCallback((e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     if ('touches' in e) e.preventDefault()
+    if (isPointerActiveRef.current) return
+    isPointerActiveRef.current = true
     const coords = getPointerCoords(e)
-    if (!coords) return
+    if (!coords) { isPointerActiveRef.current = false; return }
     const cell = pointerToGrid(coords.x, coords.y)
-    if (!cell || !cell.isInGrid) return
+    if (!cell || !cell.isInGrid) { isPointerActiveRef.current = false; return }
     const { absoluteGridX, absoluteGridY } = cell
     const priceLineGridX = (viewOffsetXRef.current + gridDimsRef.current.gridWidth * PRICE_LINE_POSITION) / gridDimsRef.current.cellWidth
-    if (absoluteGridX < priceLineGridX) { addToast('Place bets ahead of the line!', 'loss'); return }
-    if (balance < selectedBet) { addToast('Insufficient balance!', 'loss'); return }
+    if (absoluteGridX < priceLineGridX) { toast.error('Place bets ahead of the line!', { style: { borderLeft: '4px solid #fc401f' } }); isPointerActiveRef.current = false; return }
+    if (balance < selectedBet) { toast.error('Insufficient balance!', { style: { borderLeft: '4px solid #fc401f' } }); isPointerActiveRef.current = false; return }
     isDraggingRef.current = true
     const success = placeBlock(absoluteGridX, absoluteGridY)
     if (success) {
+      toast(`-$${selectedBet.toFixed(2)}`, {
+        style: {
+          background: '#eef0f3',
+          borderLeft: '4px solid #0052ff',
+        },
+      })
       lastPlacedCellRef.current = { gridX: absoluteGridX, gridY: absoluteGridY }
       const { sx, sy } = gridToScreen(absoluteGridX, absoluteGridY)
       spawnExplosion(sx, sy)
     }
-  }, [balance, selectedBet, addToast, placeBlock, spawnExplosion, getPointerCoords, pointerToGrid, gridToScreen])
+    isPointerActiveRef.current = false
+  }, [balance, selectedBet, placeBlock, spawnExplosion, getPointerCoords, pointerToGrid, gridToScreen])
 
   const handlePointerMove = useCallback((e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     if ('touches' in e) e.preventDefault()
@@ -868,6 +883,12 @@ export default function TapTrade() {
         if (!lastPlacedCellRef.current || lastPlacedCellRef.current.gridX !== absoluteGridX || lastPlacedCellRef.current.gridY !== absoluteGridY) {
           const success = placeBlock(absoluteGridX, absoluteGridY)
           if (success) {
+            toast(`-$${selectedBet.toFixed(2)}`, {
+              style: {
+                background: '#eef0f3',
+                borderLeft: '4px solid #0052ff',
+              },
+            })
             lastPlacedCellRef.current = { gridX: absoluteGridX, gridY: absoluteGridY }
             const { sx, sy } = gridToScreen(absoluteGridX, absoluteGridY)
             spawnExplosion(sx, sy)
@@ -880,12 +901,14 @@ export default function TapTrade() {
   const handlePointerUp = useCallback(() => {
     isDraggingRef.current = false
     lastPlacedCellRef.current = null
+    isPointerActiveRef.current = false
   }, [])
 
   const handlePointerLeave = useCallback(() => {
     hoverCellRef.current = null
     isDraggingRef.current = false
     lastPlacedCellRef.current = null
+    isPointerActiveRef.current = false
   }, [])
 
   // Block cleanup now handled in animation loop (real-time, no setInterval)
@@ -1164,11 +1187,11 @@ export default function TapTrade() {
     if (!blob) return
     try {
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
-      addToast('Copied to clipboard!', 'win')
+      toast('Copied to clipboard!')
     } catch {
-      addToast('Copy failed', 'loss')
+      toast.error('Copy failed', { style: { borderLeft: '4px solid #fc401f' } })
     }
-  }, [getShareCardBlob, addToast])
+  }, [getShareCardBlob])
 
   const handleShare = useCallback(async () => {
     const blob = await getShareCardBlob()
@@ -1229,18 +1252,6 @@ export default function TapTrade() {
           </div>
         </div>
       </header>
-
-      <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none">
-        {toasts.map(toast => (
-          <div
-            key={toast.id}
-            className="px-4 py-2 rounded-lg font-bold text-white shadow-lg animate-toast-pop"
-            style={{ backgroundColor: toast.type === 'win' ? colors.green : colors.red }}
-          >
-            {toast.message}
-          </div>
-        ))}
-      </div>
 
       <div ref={containerRef} className="flex-1 relative" style={{ minHeight: '300px' }}>
         <canvas

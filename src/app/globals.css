@@ -79,20 +79,3 @@ body {
     --radius: 0.5rem;
   }
 }
-
-/* Toast pop-in animation */
-@keyframes toast-pop {
-  0% {
-    opacity: 0;
-    transform: translateY(-10px) scale(0.95);
-  }
-
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-.animate-toast-pop {
-  animation: toast-pop 0.15s ease-out forwards;
-}

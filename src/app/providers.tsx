@@ -19,11 +19,19 @@ const ErudaProvider = dynamic(
   }
 );
 
+const ToasterProvider = dynamic(
+  () => import("~/components/providers/toaster-provider"),
+  {
+    ssr: false,
+  }
+);
+
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <WagmiProvider>
       <FrameProvider>
         <ErudaProvider />
+        <ToasterProvider />
         {children}
       </FrameProvider>
     </WagmiProvider>
