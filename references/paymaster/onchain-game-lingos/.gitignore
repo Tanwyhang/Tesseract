@@ -34,14 +34,3 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-
-# Reference code from base/demos
-!references/
-
-# Exclude top-level demo directories
-concept_artifact/
-samples/
-paymaster/
-mini-apps/
-base-account/
-base-app-coins/

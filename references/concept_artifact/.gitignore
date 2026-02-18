@@ -1,10 +1,14 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+node_modules
 /.pnp
-.pnp.js
-.yarn/install-state.gz
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
 
 # testing
 /coverage
@@ -24,8 +28,9 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.pnpm-debug.log*
 
-# local env files
+# env files (can opt-in for committing if needed)
 .env*
 
 # vercel
@@ -34,14 +39,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+local-*
+.claude
+.z-ai-config
+dev.log
+test
+prompt
 
-# Reference code from base/demos
-!references/
-
-# Exclude top-level demo directories
-concept_artifact/
-samples/
-paymaster/
-mini-apps/
-base-account/
-base-app-coins/
+server.log
+# Skills directory
+/skills/
