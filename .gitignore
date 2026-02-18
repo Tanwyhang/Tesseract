@@ -38,6 +38,7 @@ next-env.d.ts
 concept_artifact/
 samples/
 paymaster/
+mini-apps/
 
 base-account/
 base-app-coins/
